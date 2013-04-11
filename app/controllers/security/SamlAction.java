@@ -1,8 +1,14 @@
 package controllers.security;
 
+import com.onelogin.AccountSettings;
+import com.onelogin.AppSettings;
+import com.onelogin.saml.AuthRequest;
+import play.Play;
 import play.mvc.Action;
 import play.mvc.Http;
 import play.mvc.Result;
+
+import java.net.URLEncoder;
 
 /**
  * The SAML filter, for authentication
@@ -10,6 +16,8 @@ import play.mvc.Result;
 public class SamlAction extends Action<SamlAuthenticated> {
 
     public static final String USERNAME_SESSION_KEY = "username";
+    private static final String SAML_ISSUER = Play.application().configuration().getString("saml.issuer");
+    private static final String IDP_SSO_TARGET_URL = Play.application().configuration().getString("saml.idpSsoTargetUrl");
 
     @Override
     public Result call(Http.Context ctx) throws Throwable {
@@ -22,18 +30,23 @@ public class SamlAction extends Action<SamlAuthenticated> {
             return delegate.call(ctx);
         } else {
             // Redirect
-            return redirectToIdp();
+            return redirectToIdp(ctx);
         }
     }
 
-    public Result redirectToIdp() {
-        // At this point we need to build a SAML authentication request, probably using the OpenSAML libraries
+    public Result redirectToIdp(Http.Context ctx) throws Exception {
+        AppSettings appSettings = new AppSettings();
+        // This takes the hostname from the current request.  Alternatively, you may want to
+        // load the URL from a config parameter.
+        appSettings.setAssertionConsumerServiceUrl(routes.SamlController.acs().absoluteURL(ctx.request()));
+        appSettings.setIssuer(SAML_ISSUER);
 
-        // Part of this authentication request will include a URL to redirect back to
-        String returnUrl = routes.SamlController.acs().url();
+        AccountSettings accSettings = new AccountSettings();
+        accSettings.setIdpSsoTargetUrl(IDP_SSO_TARGET_URL);
 
-        String redirectUrl = "http://myexampleidp.com/authentication/request?returnUrl=" + returnUrl;
-
+        AuthRequest authReq = new AuthRequest(appSettings, accSettings);
+        String redirectUrl = IDP_SSO_TARGET_URL + "?SAMLRequest=" +
+                AuthRequest.getRidOfCRLF(URLEncoder.encode(authReq.getRequest(AuthRequest.base64), "UTF-8"));
         return redirect(redirectUrl);
     }
 }
